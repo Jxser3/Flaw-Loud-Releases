@@ -1,0 +1,7 @@
+Flaw Loud v1.0 RC RC QA
+1. Start app and open Settings > Theme FX. Verify Smoke, Flames, Purple Stars visibly render behind solid panels.
+2. Enable QA Mode and check all six statuses.
+3. Test PageUp show/hide and Delete unload (or configured replacements).
+4. Start/stop engine and verify diagnostics.
+5. Export Support Report v2 and confirm it contains no license key, developer password, HWID or audio.
+6. Simulate unclean close for Safe Boot testing.

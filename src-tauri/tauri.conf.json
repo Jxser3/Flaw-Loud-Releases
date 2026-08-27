@@ -1,0 +1,56 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Flaw Loud",
+  "version": "1.0.0",
+  "identifier": "com.bnet.flawloud",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Flaw Loud — Extreme Clean Loudness Engine",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1120,
+        "minHeight": 720,
+        "decorations": false,
+        "transparent": true,
+        "resizable": true,
+        "skipTaskbar": true,
+        "contentProtected": true,
+        "shadow": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "publisher": "Bnet",
+    "copyright": "© 2026 Bnet. All rights reserved.",
+    "shortDescription": "Flaw Loud — Extreme Clean Loudness Engine",
+    "longDescription": "Premium real-time voice loudness engine for Windows. Created by Bnet.",
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaW5pIHB1YmxpYyBrZXk6IEY3QjQzQjNFNTQwQTgyNTAKUldSUWdncFVQanUwOTltUlRQQUNZbnlXbVQxWHpsdFRHeUxaS00zOURFVzI5dG1yYVdmSitOOUsK",
+      "endpoints": [
+        "https://github.com/Jxser3/Flaw-Loud-Releases/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

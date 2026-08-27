@@ -1,0 +1,8 @@
+{
+  "enabled": false,
+  "dev_bypass": true,
+  "name": "Flaw Loud",
+  "owner_id": "PASTE_OWNER_ID",
+  "version": "1.0.0",
+  "api_url": "https://keyauth.win/api/1.3/"
+}
