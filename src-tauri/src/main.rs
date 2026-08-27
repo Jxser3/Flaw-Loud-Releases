@@ -128,7 +128,8 @@ fn f32_config_at(device:&cpal::Device,input:bool,rate:u32)->Option<SupportedStre
 }
 #[tauri::command] fn stop_engine(state:State<'_,EngineState>)->Result<(),String>{state.stop.store(true,Ordering::SeqCst);Ok(())}
 
-#[tauri::command] fn start_engine(input_id:String,output_id:String,latency_target:Option<String>,state:State<'_,EngineState>)->Result<String,String>{
+#[tauri::command] fn start_engine(input_id:String,output_id:String,latency_target:Option<String>,state:State<'_,EngineState>,license:State<'_,LicenseState>)->Result<String,String>{
+    if !license.is_authenticated()? { return Err("A valid Flaw Loud license is required to start the engine.".into()); }
     if state.running.load(Ordering::SeqCst){return Ok("Engine is already running".into())}
     state.stop.store(false,Ordering::SeqCst); let running=state.running.clone(); let stop=state.stop.clone(); let metrics=state.metrics.clone(); let config=state.config.clone(); let visual=state.visual.clone(); let (tx,rx)=std::sync::mpsc::sync_channel::<Result<String,String>>(1);
     std::thread::spawn(move||{
