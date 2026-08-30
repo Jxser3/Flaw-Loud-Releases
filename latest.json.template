@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "notes": "Flaw Loud update notes",
+  "pub_date": "2026-08-27T00:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "PASTE_CONTENTS_OF_THE_GENERATED_SIG_FILE",
+      "url": "https://YOUR-HTTPS-HOST/Flaw-Loud-setup.exe"
+    }
+  }
+}

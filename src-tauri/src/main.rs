@@ -1,22 +1,30 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod dsp;
-mod license;
+mod platform;
 use cpal::{SampleFormat, StreamConfig, SupportedStreamConfig};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use dsp::{DspConfig, VoiceDsp};
 use ringbuf::{HeapRb, traits::{Consumer, Producer, Split}};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::time::{Duration, Instant};
 use tauri::{Manager, State};
-use license::LicenseState;
+use platform::PlatformState;
 
 
 #[derive(Clone, Serialize)] struct SystemDiagnostics {
     app_version:String, os:String, arch:String, native_audio:bool, input_devices:usize, output_devices:usize, engine_running:bool, sample_rate:u32, latency_ms:f32, underruns:u64, clip_count:u64
 }
+#[derive(Clone, Deserialize)] struct UpdateConfig { enabled:bool, endpoint:String, public_key:String, channel:String }
 #[derive(Clone, Serialize)] struct UpdateStatus { configured:bool, enabled:bool, channel:String, current_version:String, message:String }
 #[derive(Clone, Serialize)] struct UpdateCheck { configured:bool, available:bool, version:String, notes:String, message:String }
+
+fn update_config()->UpdateConfig{
+    serde_json::from_str(include_str!("../updater.json")).unwrap_or(UpdateConfig{enabled:false,endpoint:String::new(),public_key:String::new(),channel:"stable".into()})
+}
+fn updater_configured(c:&UpdateConfig)->bool{
+    c.enabled && c.endpoint.starts_with("https://") && !c.endpoint.contains("PASTE_") && !c.public_key.contains("PASTE_") && c.public_key.trim().len()>16
+}
 #[tauri::command] fn get_system_diagnostics(state:State<'_,EngineState>)->Result<SystemDiagnostics,String>{
     let host=cpal::default_host();
     let inputs=host.input_devices().map(|d|d.count()).unwrap_or(0);
@@ -25,13 +33,18 @@ use license::LicenseState;
     Ok(SystemDiagnostics{app_version:env!("CARGO_PKG_VERSION").into(),os:std::env::consts::OS.into(),arch:std::env::consts::ARCH.into(),native_audio:true,input_devices:inputs,output_devices:outputs,engine_running:state.running.load(Ordering::Relaxed),sample_rate:m.sample_rate,latency_ms:m.latency_ms,underruns:m.underruns,clip_count:m.clip_count})
 }
 #[tauri::command] fn get_update_status()->UpdateStatus{
-    UpdateStatus{configured:true,enabled:true,channel:"stable".into(),current_version:env!("CARGO_PKG_VERSION").into(),message:"Signed Tauri updater ready".into()}
+    let c=update_config(); let configured=updater_configured(&c);
+    UpdateStatus{configured,enabled:c.enabled,channel:c.channel,current_version:env!("CARGO_PKG_VERSION").into(),message:if configured{"Signed Tauri updater ready".into()}else{"Updater needs an HTTPS endpoint and Tauri public signing key".into()}}
 }
 #[tauri::command] async fn check_for_updates(app:tauri::AppHandle)->Result<UpdateCheck,String>{
+    let c=update_config();
+    if !updater_configured(&c){return Ok(UpdateCheck{configured:false,available:false,version:String::new(),notes:String::new(),message:"Signed updater is not configured yet".into()});}
     #[cfg(desktop)]
     {
         use tauri_plugin_updater::UpdaterExt;
-        let updater=app.updater().map_err(|e|format!("Updater initialization failed: {e}"))?;
+        let endpoint=c.endpoint.parse::<url::Url>().map_err(|e|format!("Invalid update endpoint: {e}"))?;
+        let builder=app.updater_builder().pubkey(c.public_key.clone()).endpoints(vec![endpoint]).map_err(|e|format!("Updater configuration failed: {e}"))?;
+        let updater=builder.build().map_err(|e|format!("Updater initialization failed: {e}"))?;
         match updater.check().await.map_err(|e|format!("Update check failed: {e}"))? {
             Some(update)=>Ok(UpdateCheck{configured:true,available:true,version:update.version.clone(),notes:update.body.clone().unwrap_or_default(),message:format!("Flaw Loud {} is available",update.version)}),
             None=>Ok(UpdateCheck{configured:true,available:false,version:String::new(),notes:String::new(),message:"Flaw Loud is up to date".into()})
@@ -41,13 +54,17 @@ use license::LicenseState;
     { Err("Updater is only available on desktop builds.".into()) }
 }
 #[tauri::command] async fn install_update(app:tauri::AppHandle)->Result<String,String>{
+    let c=update_config();
+    if !updater_configured(&c){return Err("Signed updater is not configured yet.".into());}
     #[cfg(desktop)]
     {
         use tauri_plugin_updater::UpdaterExt;
-        let updater=app.updater().map_err(|e|format!("Updater initialization failed: {e}"))?;
+        let endpoint=c.endpoint.parse::<url::Url>().map_err(|e|format!("Invalid update endpoint: {e}"))?;
+        let updater=app.updater_builder().pubkey(c.public_key.clone()).endpoints(vec![endpoint]).map_err(|e|format!("Updater configuration failed: {e}"))?.build().map_err(|e|format!("Updater initialization failed: {e}"))?;
         let update=updater.check().await.map_err(|e|format!("Update check failed: {e}"))?.ok_or_else(||"Flaw Loud is already up to date.".to_string())?;
+        let version=update.version.clone();
         update.download_and_install(|_,_|{},||{}).await.map_err(|e|format!("Update installation failed: {e}"))?;
-        app.restart();
+        Ok(format!("Update {version} downloaded and installer started."))
     }
     #[cfg(not(desktop))]
     { Err("Updater is only available on desktop builds.".into()) }
@@ -91,7 +108,7 @@ use license::LicenseState;
 #[derive(Clone, Copy, Serialize, Default)] struct EngineMetrics {
     input_peak:f32, output_peak:f32, input_rms:f32, output_rms:f32, underruns:u64, sample_rate:u32, latency_ms:f32,
     gain_reduction_db:f32, limiter_reduction_db:f32, clip_activity:f32, dynamic_eq_activity:f32, deesser_reduction_db:f32,
-    gate_reduction_db:f32, clip_count:u64,
+    gate_reduction_db:f32, apo_input_trim_db:f32, apo_input_hot:f32, apo_bass_protection:f32, clip_count:u64,
 }
 #[derive(Serialize)] struct VisualFrame { waveform:Vec<f32>, bands:Vec<f32> }
 
@@ -119,7 +136,7 @@ fn f32_config_at(device:&cpal::Device,input:bool,rate:u32)->Option<SupportedStre
     Ok(AudioDevices{inputs,outputs})
 }
 #[tauri::command] fn set_dsp_config(config:DspConfig,state:State<'_,EngineState>)->Result<(),String>{*state.config.lock().map_err(|_|"DSP state lock failed")?=config;Ok(())}
-#[tauri::command] fn get_engine_metrics(state:State<'_,EngineState>)->Result<EngineMetrics,String>{let mut m=*state.metrics.lock().map_err(|_|"Metrics state lock failed")?;if !state.running.load(Ordering::Relaxed){m.input_peak=0.0;m.output_peak=0.0;m.input_rms=0.0;m.output_rms=0.0;m.gain_reduction_db=0.0;m.limiter_reduction_db=0.0;m.clip_activity=0.0;m.dynamic_eq_activity=0.0;m.deesser_reduction_db=0.0;m.gate_reduction_db=0.0;}Ok(m)}
+#[tauri::command] fn get_engine_metrics(state:State<'_,EngineState>)->Result<EngineMetrics,String>{let mut m=*state.metrics.lock().map_err(|_|"Metrics state lock failed")?;if !state.running.load(Ordering::Relaxed){m.input_peak=0.0;m.output_peak=0.0;m.input_rms=0.0;m.output_rms=0.0;m.gain_reduction_db=0.0;m.limiter_reduction_db=0.0;m.clip_activity=0.0;m.dynamic_eq_activity=0.0;m.deesser_reduction_db=0.0;m.gate_reduction_db=0.0;m.apo_input_trim_db=0.0;m.apo_input_hot=0.0;m.apo_bass_protection=0.0;}Ok(m)}
 #[tauri::command] fn get_visual_frame(state:State<'_,EngineState>)->Result<VisualFrame,String>{
     let wave=state.visual.lock().map_err(|_|"Visual state lock failed")?.clone();
     let n=wave.len().max(1); let mut bands=Vec::with_capacity(32);
@@ -128,8 +145,7 @@ fn f32_config_at(device:&cpal::Device,input:bool,rate:u32)->Option<SupportedStre
 }
 #[tauri::command] fn stop_engine(state:State<'_,EngineState>)->Result<(),String>{state.stop.store(true,Ordering::SeqCst);Ok(())}
 
-#[tauri::command] fn start_engine(input_id:String,output_id:String,latency_target:Option<String>,state:State<'_,EngineState>,license:State<'_,LicenseState>)->Result<String,String>{
-    if !license.is_authenticated()? { return Err("A valid Flaw Loud license is required to start the engine.".into()); }
+#[tauri::command] fn start_engine(input_id:String,output_id:String,latency_target:Option<String>,state:State<'_,EngineState>)->Result<String,String>{
     if state.running.load(Ordering::SeqCst){return Ok("Engine is already running".into())}
     state.stop.store(false,Ordering::SeqCst); let running=state.running.clone(); let stop=state.stop.clone(); let metrics=state.metrics.clone(); let config=state.config.clone(); let visual=state.visual.clone(); let (tx,rx)=std::sync::mpsc::sync_channel::<Result<String,String>>(1);
     std::thread::spawn(move||{
@@ -140,11 +156,30 @@ fn f32_config_at(device:&cpal::Device,input:bool,rate:u32)->Option<SupportedStre
             let input_channels=input_supported.channels() as usize; let output_channels=output_supported.channels() as usize; let input_cfg:StreamConfig=input_supported.config(); let output_cfg:StreamConfig=output_supported.config();
             let target=latency_target.unwrap_or_else(||"Balanced".into()); let(cap_ms,delay_ms,reported_ms)=match target.as_str(){"Lowest"=>(55usize,7.0f32,9.0f32),"Safe"=>(130usize,24.0f32,27.0f32),_=>(80usize,12.0f32,14.0f32)}; let capacity_frames=(rate as usize/1000)*cap_ms; let rb=HeapRb::<f32>::new(capacity_frames.max(2048)); let(mut producer,mut consumer)=rb.split(); let delay_frames=((rate as f32*(delay_ms/1000.0))as usize).min(capacity_frames/2); for _ in 0..delay_frames { let _ = producer.try_push(0.0); }
             let input_metrics=metrics.clone(); let input_config=config.clone(); let input_visual=visual.clone(); let mut dsp=VoiceDsp::new(rate as f32,*input_config.lock().map_err(|_|"DSP state lock failed")?); let mut last_cfg_read=Instant::now(); let mut visual_buf=Vec::<f32>::with_capacity(256);
+            // Phase-Safe Capture: never blindly average stereo capture channels.
+            // Equalizer APO sets can introduce different latency/phase per channel; summing those
+            // channels to mono creates comb filtering (the classic hollow / buried voice).
+            // We keep one coherent capture channel and only switch when another channel is
+            // clearly dominant, with hysteresis to prevent channel flapping.
+            let mut selected_input_channel:usize=0;
+            let mut channel_energy_ema=vec![0.0f32;input_channels.max(1)];
+            let mut channel_switch_hold:u32=0;
             let input_stream=input_device.build_input_stream(input_cfg,move|data:&[f32],_|{
                 if last_cfg_read.elapsed()>=Duration::from_millis(20){if let Ok(c)=input_config.try_lock(){dsp.set_config(*c)}last_cfg_read=Instant::now()}
-                let mut peak_in=0.0f32;let mut peak_out=0.0f32;let mut sum_in=0.0f32;let mut sum_out=0.0f32;let mut frames=0u32;let mut max_gr=0.0f32;let mut max_lgr=0.0f32;let mut max_clip=0.0f32;let mut max_deq=0.0f32;let mut max_ds=0.0f32;let mut max_gate=0.0f32;let mut clips=0u64;
-                for frame in data.chunks(input_channels.max(1)){let mono=frame.iter().copied().sum::<f32>()/frame.len().max(1) as f32;let processed=dsp.process_sample(mono);peak_in=peak_in.max(mono.abs());peak_out=peak_out.max(processed.abs());sum_in+=mono*mono;sum_out+=processed*processed;frames+=1;max_gr=max_gr.max(dsp.compressor_reduction_db());max_lgr=max_lgr.max(dsp.limiter_reduction_db());max_clip=max_clip.max(dsp.clip_activity());max_deq=max_deq.max(dsp.dynamic_eq_activity());max_ds=max_ds.max(dsp.deesser_reduction_db());max_gate=max_gate.max(dsp.gate_reduction_db());if processed.abs()>0.995{clips+=1}let _=producer.try_push(processed);visual_buf.push(processed);if visual_buf.len()>=256{if let Ok(mut v)=input_visual.try_lock(){v.copy_from_slice(&visual_buf[..256]);}visual_buf.clear();}}
-                if let Ok(mut m)=input_metrics.try_lock(){let fi=frames.max(1)as f32;m.input_peak=m.input_peak*0.72+peak_in*0.28;m.output_peak=m.output_peak*0.72+peak_out*0.28;m.input_rms=m.input_rms*0.75+(sum_in/fi).sqrt()*0.25;m.output_rms=m.output_rms*0.75+(sum_out/fi).sqrt()*0.25;m.gain_reduction_db=m.gain_reduction_db*0.62+max_gr*0.38;m.limiter_reduction_db=m.limiter_reduction_db*0.62+max_lgr*0.38;m.clip_activity=m.clip_activity*0.55+max_clip*0.45;m.dynamic_eq_activity=m.dynamic_eq_activity*0.62+max_deq*0.38;m.deesser_reduction_db=m.deesser_reduction_db*0.62+max_ds*0.38;m.gate_reduction_db=m.gate_reduction_db*0.62+max_gate*0.38;m.clip_count=m.clip_count.saturating_add(clips);}
+                if input_channels>1{
+                    let mut block_energy=vec![0.0f32;input_channels];let mut block_frames=0usize;
+                    for frame in data.chunks(input_channels){if frame.len()<input_channels{continue}block_frames+=1;for ch in 0..input_channels{let v=frame[ch];block_energy[ch]+=v*v;}}
+                    if block_frames>0{
+                        for ch in 0..input_channels{let r=(block_energy[ch]/block_frames as f32).sqrt();channel_energy_ema[ch]=channel_energy_ema[ch]*0.86+r*0.14;}
+                        let mut best=selected_input_channel.min(input_channels-1);for ch in 0..input_channels{if channel_energy_ema[ch]>channel_energy_ema[best]{best=ch}}
+                        let cur=channel_energy_ema[selected_input_channel.min(input_channels-1)];let best_e=channel_energy_ema[best];
+                        if channel_switch_hold>0{channel_switch_hold-=1;}
+                        if best!=selected_input_channel && channel_switch_hold==0 && (cur<0.0005 || best_e>cur*1.85){selected_input_channel=best;channel_switch_hold=24;}
+                    }
+                }
+                let mut peak_in=0.0f32;let mut peak_out=0.0f32;let mut sum_in=0.0f32;let mut sum_out=0.0f32;let mut frames=0u32;let mut max_gr=0.0f32;let mut max_lgr=0.0f32;let mut max_clip=0.0f32;let mut max_deq=0.0f32;let mut max_ds=0.0f32;let mut max_gate=0.0f32;let mut max_apo_trim=0.0f32;let mut max_apo_hot=0.0f32;let mut max_apo_bass=0.0f32;let mut clips=0u64;
+                for frame in data.chunks(input_channels.max(1)){if frame.is_empty(){continue}let mono=if input_channels<=1{frame[0]}else{frame[selected_input_channel.min(frame.len()-1)]};let processed=dsp.process_sample(mono);peak_in=peak_in.max(mono.abs());peak_out=peak_out.max(processed.abs());sum_in+=mono*mono;sum_out+=processed*processed;frames+=1;max_gr=max_gr.max(dsp.compressor_reduction_db());max_lgr=max_lgr.max(dsp.limiter_reduction_db());max_clip=max_clip.max(dsp.clip_activity());max_deq=max_deq.max(dsp.dynamic_eq_activity());max_ds=max_ds.max(dsp.deesser_reduction_db());max_gate=max_gate.max(dsp.gate_reduction_db());max_apo_trim=max_apo_trim.max(dsp.apo_input_trim_db());max_apo_hot=max_apo_hot.max(dsp.apo_input_hot());max_apo_bass=max_apo_bass.max(dsp.apo_bass_protection());if processed.abs()>0.995{clips+=1}let _=producer.try_push(processed);visual_buf.push(processed);if visual_buf.len()>=256{if let Ok(mut v)=input_visual.try_lock(){v.copy_from_slice(&visual_buf[..256]);}visual_buf.clear();}}
+                if let Ok(mut m)=input_metrics.try_lock(){let fi=frames.max(1)as f32;m.input_peak=m.input_peak*0.72+peak_in*0.28;m.output_peak=m.output_peak*0.72+peak_out*0.28;m.input_rms=m.input_rms*0.75+(sum_in/fi).sqrt()*0.25;m.output_rms=m.output_rms*0.75+(sum_out/fi).sqrt()*0.25;m.gain_reduction_db=m.gain_reduction_db*0.62+max_gr*0.38;m.limiter_reduction_db=m.limiter_reduction_db*0.62+max_lgr*0.38;m.clip_activity=m.clip_activity*0.55+max_clip*0.45;m.dynamic_eq_activity=m.dynamic_eq_activity*0.62+max_deq*0.38;m.deesser_reduction_db=m.deesser_reduction_db*0.62+max_ds*0.38;m.gate_reduction_db=m.gate_reduction_db*0.62+max_gate*0.38;m.apo_input_trim_db=m.apo_input_trim_db*0.70+max_apo_trim*0.30;m.apo_input_hot=m.apo_input_hot*0.68+max_apo_hot*0.32;m.apo_bass_protection=m.apo_bass_protection*0.68+max_apo_bass*0.32;m.clip_count=m.clip_count.saturating_add(clips);}
             },move|err|eprintln!("Flaw Loud input stream: {err}"),None).map_err(|e|format!("Input stream failed: {e}"))?;
             let output_metrics=metrics.clone(); let output_stream=output_device.build_output_stream(output_cfg,move|data:&mut[f32],_|{for frame in data.chunks_mut(output_channels.max(1)){let sample=match consumer.try_pop(){Some(v)=>v,None=>{if let Ok(mut m)=output_metrics.try_lock(){m.underruns+=1}0.0}};frame.fill(sample)}},move|err|eprintln!("Flaw Loud output stream: {err}"),None).map_err(|e|format!("Output stream failed: {e}"))?;
             input_stream.play().map_err(|e|format!("Could not start microphone: {e}"))?;output_stream.play().map_err(|e|format!("Could not start output: {e}"))?;
@@ -167,7 +202,7 @@ fn main(){
         }
         Ok(())
       })
-      .manage(EngineState::default()).manage(LicenseState::default())
-      .invoke_handler(tauri::generate_handler![list_audio_devices,start_engine,stop_engine,set_dsp_config,get_engine_metrics,get_visual_frame,get_system_diagnostics,get_update_status,check_for_updates,install_update,export_support_report,minimize_to_tray,apply_stream_mode,toggle_stream_window,unload_app,license::get_license_status,license::activate_license,license::restore_saved_license,license::use_developer_preview,license::logout_license])
+      .manage(EngineState::default()).manage(PlatformState::default())
+      .invoke_handler(tauri::generate_handler![list_audio_devices,start_engine,stop_engine,set_dsp_config,get_engine_metrics,get_visual_frame,get_system_diagnostics,get_update_status,check_for_updates,install_update,export_support_report,minimize_to_tray,apply_stream_mode,toggle_stream_window,unload_app,platform::platform_bootstrap_status,platform::platform_bootstrap_owner,platform::platform_login,platform::platform_resume_session,platform::platform_logout,platform::platform_list_announcements,platform::platform_mark_announcement_read,platform::platform_create_announcement,platform::platform_submit_report,platform::platform_admin_snapshot,platform::platform_create_user,platform::platform_set_user_role,platform::platform_set_user_access,platform::platform_revoke_sessions,platform::platform_update_report,platform::platform_set_release_policy,platform::platform_open_attachment])
       .run(tauri::generate_context!()).expect("error while running Flaw Loud");
 }

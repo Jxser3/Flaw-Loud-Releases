@@ -1,0 +1,14 @@
+FLAW LOUD v1.1 RC — WHAT IS NEEDED FOR A PUBLIC MULTI-PC LAUNCH
+
+SIGNED UPDATER
+- HTTPS latest.json endpoint (GitHub Releases is supported by the existing setup).
+- Tauri PUBLIC signing key embedded in the app.
+- Tauri PRIVATE signing key kept only on the release/build machine or GitHub Actions secrets.
+
+CONNECTED PLATFORM
+- The included v1.1 RC backend is LOCAL for safe testing on one PC.
+- Public multi-PC accounts/announcements/reports require a hosted HTTPS API + database + attachment storage.
+- Use strong server-side password hashing and authorization before public deployment.
+
+KEYAUTH
+- Intentionally out of the v1.1 Connected Platform until the Owner requests otherwise.

@@ -1,7 +1,12 @@
-Flaw Loud v1.0 RC RC QA
-1. Start app and open Settings > Theme FX. Verify Smoke, Flames, Purple Stars visibly render behind solid panels.
-2. Enable QA Mode and check all six statuses.
-3. Test PageUp show/hide and Delete unload (or configured replacements).
-4. Start/stop engine and verify diagnostics.
-5. Export Support Report v2 and confirm it contains no license key, developer password, HWID or audio.
-6. Simulate unclean close for Safe Boot testing.
+Flaw Loud v1.1 RC — Connected Platform QA
+
+1. First launch: create the Owner account, sign out, then sign back in.
+2. Owner: create one User and one Moderator. Verify Moderator cannot change roles/access/release policy.
+3. Send announcements as Owner/Moderator. Verify bell unread counter and mark-read behavior.
+4. Submit Bug and Equalizer APO Compatibility reports. Test image/video attachments and admin status changes.
+5. Suspend/block/ban a test User and verify the active session is revoked and login is denied as expected.
+6. Release Policy: set a newer version with 24h grace. Verify User sees update available while Owner sees version bypass.
+7. External EQ/APO Mode: test with an APO set, start around headroom equal to the set's largest positive boost, and compare clarity with mode off/on.
+8. Start/stop audio engine, Stream Mode, PageUp show/hide and Delete/Suprimir unload.
+9. Signed updater: CHECK UPDATE and DOWNLOAD/INSTALL only after updater config is present.
+10. Use RESET_LOCAL_PLATFORM.bat only when intentionally resetting RC account/platform data.

@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "endpoint": "https://github.com/Jxser3/Flaw-Loud-Releases/releases/latest/download/latest.json",
+  "public_key": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaW5pIHB1YmxpYyBrZXk6IEY3QjQzQjNFNTQwQTgyNTAKUldSUWdncFVQanUwOTltUlRQQUNZbnlXbVQxWHpsdFRHeUxaS00zOURFVzI5dG1yYVdmSitOOUsK",
+  "channel": "stable"
+}

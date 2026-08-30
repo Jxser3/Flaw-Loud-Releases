@@ -1,0 +1,18 @@
+FLAW LOUD v1.1.2 — GITHUB READY
+
+Approved audio build: Phase-Safe APO Capture + APO Input Guard 2.0.
+
+Release preparation in this package:
+- Version promoted/synchronized to 1.1.2 in package.json, Cargo.toml and tauri.conf.json.
+- Frontend version labels synchronized to v1.1.2.
+- Signed updater endpoint restored to Jxser3/Flaw-Loud-Releases latest.json.
+- Official Tauri updater public key restored (public key only; no private key is shipped).
+- Runtime updater.json enabled for the signed GitHub Releases updater.
+- KeyAuth remains intentionally disabled/separate for this release.
+- GitHub Actions workflow no longer blocks the release on KeyAuth configuration.
+- Existing GitHub signing secrets are still used by GitHub Actions.
+
+To publish:
+Double-click PUBLISH_v1.1.2_TO_GITHUB.bat.
+It clones the official repo, overlays this source, commits main, creates tag v1.1.2 and pushes it.
+GitHub Actions then builds and signs the Windows installers.

@@ -48,10 +48,10 @@ impl Default for LicenseConfig {
     fn default() -> Self {
         serde_json::from_str(include_str!("../keyauth.json")).unwrap_or_else(|_| Self {
             enabled: false,
-            dev_bypass: false,
+            dev_bypass: true,
             name: "Flaw Loud".into(),
-            owner_id: String::new(),
-            version: "1.0.1".into(),
+            owner_id: "PASTE_OWNER_ID".into(),
+            version: "0.9.5-rc.1".into(),
             api_url: "https://keyauth.win/api/1.3/".into(),
         })
     }
@@ -84,15 +84,7 @@ pub struct LicenseState {
 }
 impl Default for LicenseState {
     fn default() -> Self {
-        let mut config=LicenseConfig::default();
-        if !cfg!(debug_assertions) { config.dev_bypass=false; }
-        Self { config, runtime: Mutex::new(RuntimeLicense::default()) }
-    }
-}
-
-impl LicenseState {
-    pub fn is_authenticated(&self) -> Result<bool, String> {
-        self.runtime.lock().map(|r|r.authenticated).map_err(|_|"License state lock failed".into())
+        Self { config: LicenseConfig::default(), runtime: Mutex::new(RuntimeLicense::default()) }
     }
 }
 
@@ -116,7 +108,7 @@ struct ApiResponse {
 }
 
 fn configured(c: &LicenseConfig) -> bool {
-    c.enabled && c.name == "Flaw Loud" && c.owner_id.len() == 10
+    c.enabled && !c.name.trim().is_empty() && c.owner_id.len() == 10 && c.owner_id != "PASTE_OWNER_ID"
 }
 fn hwid() -> String {
     let raw = format!("{}|{}|{}|{}",

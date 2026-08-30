@@ -1,12 +1,15 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title Flaw Loud v0.9.5.2 RC
+title Flaw Loud v1.1 RC - Connected Platform
 
 echo.
 echo ==============================================
-echo        FLAW LOUD v0.9.5.2 RC - FRAMELESS PREMIUM SHELL
+echo        FLAW LOUD v1.1 RC - CONNECTED PLATFORM
 echo ==============================================
+echo.
+echo Connected Platform: LOCAL RC backend
+echo KeyAuth: intentionally separate/disabled
 echo.
 
 where node >nul 2>nul || (
