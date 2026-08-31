@@ -5,8 +5,10 @@ const { Pool } = pg;
 export class PostgresStore {
   constructor(connectionString) {
     if (!connectionString) throw new Error('DATABASE_URL is required');
-    // Respect DATABASE_URL exactly. Railway private Postgres URLs do not need
-    // forced TLS; public providers can opt in with sslmode in the URL.
+    const url = new URL(connectionString);
+    if (!['postgres:', 'postgresql:'].includes(url.protocol)) throw new Error('DATABASE_URL must use postgres:// or postgresql://');
+    // Respect DATABASE_URL exactly. Render internal URLs need no TLS; its
+    // external URL includes sslmode=require, which node-postgres honors.
     this.pool = new Pool({ connectionString });
   }
   async init() {
