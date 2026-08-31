@@ -1,6 +1,6 @@
 # Flaw Loud Railway backend
 
-Set Railway's Root Directory to `/backend`. The build script compiles the parent Vite app, and `npm start` launches the API server, which then serves `../dist`.
+Set Railway's Root Directory to `/backend`. Railway automatically detects `Dockerfile`; no Build Command or Start Command override is needed. The image builds the self-contained Vite app in `frontend/`, and `npm start` launches the API server, which serves the resulting `dist`.
 
 Required environment variables are documented in `.env.example`. Add a Railway PostgreSQL service and expose its `DATABASE_URL` to this service. The initial admin is created once from `FLAW_ADMIN_USERNAME` and `FLAW_ADMIN_PASSWORD`; changing those variables does not overwrite an existing account.
 
