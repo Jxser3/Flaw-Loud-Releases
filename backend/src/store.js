@@ -5,7 +5,9 @@ const { Pool } = pg;
 export class PostgresStore {
   constructor(connectionString) {
     if (!connectionString) throw new Error('DATABASE_URL is required');
-    this.pool = new Pool({ connectionString, ssl: connectionString.includes('localhost') ? false : { rejectUnauthorized: false } });
+    // Respect DATABASE_URL exactly. Railway private Postgres URLs do not need
+    // forced TLS; public providers can opt in with sslmode in the URL.
+    this.pool = new Pool({ connectionString });
   }
   async init() {
     await this.pool.query(`
