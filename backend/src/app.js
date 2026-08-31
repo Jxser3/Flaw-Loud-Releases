@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cookieParser from 'cookie-parser';
+import cors from 'cors';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import { hashPassword, verifyPassword, newSessionToken, hashToken } from './security.js';
@@ -11,6 +12,13 @@ const COOKIE = 'flaw_session';
 const publicUser = (u) => ({ id: String(u.id), username: u.username, role: u.role, createdAt: u.createdAt ?? u.created_at, lastLoginAt: u.lastLoginAt ?? u.last_login_at, lastSeenAt: u.lastSeenAt ?? u.last_seen_at, status: u.status });
 const validUsername = (v) => typeof v === 'string' && /^[A-Za-z0-9_.-]{3,32}$/.test(v);
 const validPassword = (v) => typeof v === 'string' && v.length >= 10 && v.length <= 128;
+const ALLOWED_ORIGINS = new Set([
+  'tauri://localhost',
+  'https://tauri.localhost',
+  'http://tauri.localhost',
+  'http://localhost:5173',
+  'https://flaw-loud-releases-production-4186.up.railway.app',
+]);
 
 export async function bootstrapAdmin(store, env = process.env) {
   const username = env.FLAW_ADMIN_USERNAME;
@@ -27,12 +35,20 @@ export function createApp({ store, env = process.env, frontendDir } = {}) {
   const app = express();
   if (env.TRUST_PROXY) app.set('trust proxy', Number(env.TRUST_PROXY) || 1);
   app.disable('x-powered-by');
+  app.use(cors({
+    origin: (origin, callback) => callback(null, !origin || ALLOWED_ORIGINS.has(origin)),
+    credentials: true,
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type'],
+  }));
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(express.json({ limit: '32kb' }));
   app.use(cookieParser());
 
   const authLimit = rateLimit({ windowMs: 15 * 60_000, limit: env.NODE_ENV === 'test' ? 1000 : 20, standardHeaders: 'draft-8', legacyHeaders: false });
-  const cookieOptions = (maxAge) => ({ httpOnly: true, secure: env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge });
+  const productionCookie = env.NODE_ENV === 'production';
+  const cookieOptions = (maxAge) => ({ httpOnly: true, secure: productionCookie, sameSite: productionCookie ? 'none' : 'lax', path: '/', maxAge });
+  const clearCookieOptions = { httpOnly: true, secure: productionCookie, sameSite: productionCookie ? 'none' : 'lax', path: '/' };
   const sessionFor = async (user, rememberMe) => {
     const token = newSessionToken();
     const maxAge = rememberMe ? Number(env.REMEMBER_ME_DAYS || 30) * 86_400_000 : Number(env.SESSION_HOURS || 12) * 3_600_000;
@@ -73,7 +89,7 @@ export function createApp({ store, env = process.env, frontendDir } = {}) {
     } catch (error) { next(error); }
   });
   app.post('/api/auth/logout', async (req, res, next) => {
-    try { if (req.cookies[COOKIE]) await store.deleteSession(hashToken(req.cookies[COOKIE])); res.clearCookie(COOKIE, { httpOnly: true, secure: env.NODE_ENV === 'production', sameSite: 'lax', path: '/' }).status(204).end(); }
+    try { if (req.cookies[COOKIE]) await store.deleteSession(hashToken(req.cookies[COOKIE])); res.clearCookie(COOKIE, clearCookieOptions).status(204).end(); }
     catch (error) { next(error); }
   });
   app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: publicUser(req.user) }));

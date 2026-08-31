@@ -38,3 +38,22 @@ test('required routing, auth, and role behavior',async()=>{
  r=await admin.get('/api/admin/users');assert.equal(r.status,200);assert.equal(r.body.users.length,2);assert.equal(r.body.users.some(x=>'password_hash' in x),false);
  r=await admin.get('/api/admin/stats');assert.equal(r.status,200);assert.equal(r.body.totalUsers,2);
 });
+
+test('Tauri origin supports credentialed auth with production cookies',async()=>{
+ const store=new MemoryStore();const productionEnv={NODE_ENV:'production',FLAW_ADMIN_USERNAME:'Bnet',FLAW_ADMIN_PASSWORD:'Admin-pass-123'};await bootstrapAdmin(store,productionEnv);const app=createApp({store,env:productionEnv,frontendDir});
+ const origin='tauri://localhost';
+ let r=await request(app).options('/api/auth/login').set('Origin',origin).set('Access-Control-Request-Method','POST').set('Access-Control-Request-Headers','content-type');
+ assert.equal(r.status,204);assert.equal(r.headers['access-control-allow-origin'],origin);assert.equal(r.headers['access-control-allow-credentials'],'true');assert.match(r.headers['access-control-allow-methods'],/GET/);assert.match(r.headers['access-control-allow-methods'],/POST/);assert.match(r.headers['access-control-allow-methods'],/OPTIONS/);assert.match(r.headers['access-control-allow-headers'],/Content-Type/i);
+
+ r=await request(app).post('/api/auth/register').set('Origin',origin).send({username:'tauriuser',password:'Secure-pass-123'});
+ assert.equal(r.status,201);assert.equal(r.headers['access-control-allow-origin'],origin);const setCookie=r.headers['set-cookie'][0];assert.match(setCookie,/HttpOnly/i);assert.match(setCookie,/Secure/i);assert.match(setCookie,/SameSite=None/i);const cookie=setCookie.split(';')[0];
+ r=await request(app).get('/api/auth/me').set('Origin',origin).set('Cookie',cookie);assert.equal(r.status,200);assert.equal(r.body.user.username,'tauriuser');
+ r=await request(app).get('/api/admin/stats').set('Origin',origin).set('Cookie',cookie);assert.equal(r.status,403);
+ r=await request(app).post('/api/auth/logout').set('Origin',origin).set('Cookie',cookie);assert.equal(r.status,204);assert.match(r.headers['set-cookie'][0],/SameSite=None/i);
+ r=await request(app).post('/api/auth/login').set('Origin',origin).send({username:'tauriuser',password:'Secure-pass-123',rememberMe:true});assert.equal(r.status,200);assert.match(r.headers['set-cookie'][0],/SameSite=None/i);
+
+ r=await request(app).post('/api/auth/login').set('Origin',origin).send({username:'Bnet',password:'Admin-pass-123'});assert.equal(r.status,200);const adminCookie=r.headers['set-cookie'][0].split(';')[0];
+ r=await request(app).get('/api/admin/stats').set('Origin',origin).set('Cookie',adminCookie);assert.equal(r.status,200);assert.equal(r.body.admins,1);
+
+ r=await request(app).options('/api/auth/login').set('Origin','https://untrusted.example').set('Access-Control-Request-Method','POST');assert.equal(r.headers['access-control-allow-origin'],undefined);
+});
