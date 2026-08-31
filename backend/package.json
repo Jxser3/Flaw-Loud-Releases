@@ -5,7 +5,7 @@
   "type": "module",
   "engines": { "node": ">=20" },
   "scripts": {
-    "build": "npm --prefix frontend ci && npm --prefix frontend run build",
+    "build": "npm --prefix frontend ci --include=dev && npm --prefix frontend run build",
     "start": "node src/server.js",
     "test": "node --test"
   },
