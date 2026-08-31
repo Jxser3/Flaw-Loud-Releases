@@ -14,6 +14,22 @@ test('Postgres supports Render internal and external DATABASE_URL modes', async 
   assert.throws(() => new PostgresStore('mysql://user:pass@host/db'), /postgres/);
 });
 
+test('Postgres createUser uses separate normalized username parameter', async () => {
+  let query;
+  const store = Object.create(PostgresStore.prototype);
+  store.pool = {
+    async query(text, values) {
+      query = { text, values };
+      return { rows: [{ id: 1 }] };
+    }
+  };
+
+  await store.createUser({ username: 'MixedCase', passwordHash: 'hash', role: 'user' });
+
+  assert.match(query.text, /VALUES \(\$1, \$2, \$3, \$4\)/);
+  assert.deepEqual(query.values, ['MixedCase', 'mixedcase', 'hash', 'user']);
+});
+
 test('production server starts and serves API health', async () => {
   const store = { init: async () => {}, close: async () => {} };
   const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist');

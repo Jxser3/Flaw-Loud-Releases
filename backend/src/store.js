@@ -38,9 +38,9 @@ export class PostgresStore {
   async createUser({ username, passwordHash, role = 'user' }) {
     const q = await this.pool.query(
       `INSERT INTO users(username, username_normalized, password_hash, role)
-       VALUES ($1, LOWER($1), $2, $3)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, username, role, created_at AS "createdAt", last_login_at AS "lastLoginAt", last_seen_at AS "lastSeenAt"`,
-      [username, passwordHash, role]
+      [username, username.toLowerCase(), passwordHash, role]
     );
     return q.rows[0];
   }
