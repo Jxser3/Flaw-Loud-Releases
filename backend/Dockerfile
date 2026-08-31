@@ -1,8 +1,7 @@
 FROM rust:1-bookworm AS builder
 WORKDIR /app
-COPY Cargo.toml ./
-COPY src ./src
-RUN cargo build --release
+COPY source.tar.gz /tmp/source.tar.gz
+RUN tar -xzf /tmp/source.tar.gz -C /app && cargo build --release
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
